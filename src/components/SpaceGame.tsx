@@ -4,6 +4,7 @@ import React, { useEffect, useRef } from "react";
 import spaceshipImg from "../../img/ship.png";
 import asteroidImg from "../../img/meteor.png";
 import bulletImg from "../../img/bullet.png";
+import bossImg from "../../img/boss.png";
 
 // Tạo một interface để xử lý lỗi TypeScript với hình ảnh
 interface ImageWithLoaded extends HTMLImageElement {
@@ -42,6 +43,7 @@ class GameObject {
     if (this.image.loaded) {
       ctx.drawImage(this.image, this.x, this.y, this.width, this.height);
     } else {
+      ctx.fillStyle = "black";
       ctx.fillRect(this.x, this.y, this.width, this.height);
     }
   }
@@ -114,7 +116,7 @@ class Spaceship extends GameObject {
 
   shoot(currentTime: number) {
     if (currentTime - this.lastShot > this.shootDelay) {
-      this.bullets.push(new Bullet(this.x + this.width / 2, this.y));
+      this.bullets.push(new Bullet(this.x + this.width / 2, this.y, 5, -1)); // Đạn đi lên
       this.lastShot = currentTime;
     }
   }
@@ -131,22 +133,115 @@ class Spaceship extends GameObject {
 }
 
 class Bullet extends GameObject {
-  constructor(x: number, y: number) {
-    super(x, y, 5, 10, 5, bulletImg.src);
+  direction: number;
+
+  constructor(x: number, y: number, speed: number = 5, direction: number = -1) {
+    super(x, y, 5, 10, speed, bulletImg.src);
+    this.direction = direction; // -1 cho đạn đi lên, 1 cho đạn đi xuống
   }
 
   update(): void {
-    this.y -= this.speed;
+    this.y += this.speed * this.direction;
   }
 }
 
 class Asteroid extends GameObject {
+  hp: number;
+
   constructor(x: number) {
     super(x, 0, 30, 30, 2, asteroidImg.src);
+    this.hp = 3;
   }
 
   update(): void {
     this.y += this.speed;
+  }
+
+  takeDamage(damage: number) {
+    this.hp -= damage;
+  }
+
+  draw(ctx: CanvasRenderingContext2D) {
+    super.draw(ctx);
+
+    // Vẽ thanh máu cho thiên thạch
+    const hpBarWidth = 30;
+    const hpBarHeight = 3;
+    const hpBarX = this.x;
+    const hpBarY = this.y - 5;
+
+    ctx.fillStyle = "red";
+    ctx.fillRect(hpBarX, hpBarY, hpBarWidth, hpBarHeight);
+
+    ctx.fillStyle = "green";
+    ctx.fillRect(hpBarX, hpBarY, (this.hp / 3) * hpBarWidth, hpBarHeight);
+  }
+}
+
+class Boss extends GameObject {
+  bullets: Bullet[];
+  lastShot: number;
+  shootDelay: number;
+  hp: number;
+  direction: number;
+
+  constructor(x: number, y: number) {
+    super(x, y, 100, 100, 0.5, bossImg.src);
+    this.bullets = [];
+    this.lastShot = 0;
+    this.shootDelay = 1000; // Bắn mỗi giây
+    this.hp = 200;
+    this.direction = 1;
+  }
+
+  draw(ctx: CanvasRenderingContext2D) {
+    super.draw(ctx);
+
+    // Vẽ thanh máu cho boss
+    const hpBarWidth = 100;
+    const hpBarHeight = 10;
+    const hpBarX = this.x;
+    const hpBarY = this.y - 20;
+
+    ctx.fillStyle = "red";
+    ctx.fillRect(hpBarX, hpBarY, hpBarWidth, hpBarHeight);
+
+    ctx.fillStyle = "green";
+    ctx.fillRect(hpBarX, hpBarY, (this.hp / 200) * hpBarWidth, hpBarHeight);
+  }
+
+  shoot(currentTime: number) {
+    if (currentTime - this.lastShot > this.shootDelay) {
+      // Bắn 3 viên đạn mỗi lần, hướng xuống dưới
+      this.bullets.push(
+        new Bullet(this.x + this.width / 2, this.y + this.height, 2, 1)
+      ); // Đạn giữa
+      this.bullets.push(
+        new Bullet(this.x + this.width / 4, this.y + this.height, 2, 1)
+      ); // Đạn trái
+      this.bullets.push(
+        new Bullet(this.x + (this.width * 3) / 4, this.y + this.height, 2, 1)
+      ); // Đạn phải
+      this.lastShot = currentTime;
+    }
+  }
+
+  update(currentTime: number, canvasWidth: number): void {
+    this.shoot(currentTime);
+    this.bullets = this.bullets.filter(
+      (bullet) => bullet.y < window.innerHeight
+    );
+    this.bullets.forEach((bullet) => bullet.update());
+
+    // Di chuyển boss qua lại
+    this.x += this.speed * this.direction;
+    if (this.x <= 0 || this.x + this.width >= canvasWidth) {
+      this.direction *= -1;
+    }
+  }
+
+  takeDamage(damage: number) {
+    this.hp = Math.max(0, this.hp - damage);
   }
 }
 
@@ -175,7 +270,13 @@ const SpaceGame: React.FC = () => {
     );
     const asteroids: Asteroid[] = [];
     let lastAsteroidTime = 0;
-    const asteroidDelay = 2000; // 2 seconds
+    let asteroidDelay = 1000; // Giảm xuống 1 giây
+    const minAsteroidDelay = 500; // Thời gian tối thiểu giữa các thiên thạch
+    const maxAsteroids = 8; // Tăng số lượng thiên thạch tối đa
+
+    let destroyedAsteroids = 0;
+    let boss: Boss | null = null;
+    let bossAppearanceThreshold = 10;
 
     const gameLoop = (currentTime: number) => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -195,10 +296,18 @@ const SpaceGame: React.FC = () => {
       // Create new asteroids
       if (
         currentTime - lastAsteroidTime > asteroidDelay &&
-        asteroids.length < 5
+        asteroids.length < maxAsteroids
       ) {
-        asteroids.push(new Asteroid(Math.random() * (canvas.width - 30)));
+        const newAsteroidCount = Math.floor(Math.random() * 2) + 1; // Tạo 1-3 thiên thạch mỗi lần
+        for (let i = 0; i < newAsteroidCount; i++) {
+          if (asteroids.length < maxAsteroids) {
+            asteroids.push(new Asteroid(Math.random() * (canvas.width - 30)));
+          }
+        }
         lastAsteroidTime = currentTime;
+
+        // Giảm thời gian chờ giữa các đợt thiên thạch
+        asteroidDelay = Math.max(minAsteroidDelay, asteroidDelay * 0.95);
       }
 
       // Update and draw asteroids
@@ -210,6 +319,34 @@ const SpaceGame: React.FC = () => {
         // Remove asteroids that are off screen
         if (asteroid.y > canvas.height) {
           asteroids.splice(i, 1);
+        }
+      }
+
+      // Update and draw boss
+      if (boss) {
+        boss.update(currentTime, canvas.width);
+        boss.draw(ctx);
+
+        // Update and draw boss bullets
+        boss.bullets.forEach((bullet) => {
+          bullet.update();
+          bullet.draw(ctx);
+        });
+
+        // Kiểm tra va chạm giữa đạn của boss và tàu vũ trụ
+        if (spaceshipRef.current) {
+          for (let i = boss.bullets.length - 1; i >= 0; i--) {
+            const bullet = boss.bullets[i];
+            if (
+              bullet.x < spaceshipRef.current.x + spaceshipRef.current.width &&
+              bullet.x + bullet.width > spaceshipRef.current.x &&
+              bullet.y < spaceshipRef.current.y + spaceshipRef.current.height &&
+              bullet.y + bullet.height > spaceshipRef.current.y
+            ) {
+              boss.bullets.splice(i, 1);
+              spaceshipRef.current.takeDamage(2);
+            }
+          }
         }
       }
 
@@ -226,8 +363,33 @@ const SpaceGame: React.FC = () => {
               bullet.y + bullet.height > asteroid.y
             ) {
               spaceshipRef.current.bullets.splice(i, 1);
-              asteroids.splice(j, 1);
+              asteroid.takeDamage(1); // Giảm sát thương xuống 1
+              if (asteroid.hp <= 0) {
+                asteroids.splice(j, 1);
+                destroyedAsteroids++;
+
+                // Kiểm tra điều kiện xuất hiện boss
+                if (destroyedAsteroids === bossAppearanceThreshold && !boss) {
+                  boss = new Boss(canvas.width / 2 - 50, 50);
+                  bossAppearanceThreshold += 10; // Tăng ngưỡng cho lần tiếp theo
+                }
+              }
               break;
+            }
+          }
+
+          // Kiểm tra va chạm giữa đạn và boss
+          if (
+            boss &&
+            bullet.x < boss.x + boss.width &&
+            bullet.x + bullet.width > boss.x &&
+            bullet.y < boss.y + boss.height &&
+            bullet.y + bullet.height > boss.y
+          ) {
+            spaceshipRef.current.bullets.splice(i, 1);
+            boss.takeDamage(1); // Giảm sát thương xuống 1
+            if (boss.hp <= 0) {
+              boss = null;
             }
           }
         }
@@ -308,7 +470,7 @@ const SpaceGame: React.FC = () => {
       }
     };
 
-    // Thêm xử lý cho sự kiện touchstart
+    // Thm xử lý cho sự kiện touchstart
     const handleTouchStart = (e: TouchEvent) => {
       e.preventDefault();
       handleTouchMove(e); // Xử lý ngay khi bắt đầu chạm
