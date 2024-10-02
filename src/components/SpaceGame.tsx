@@ -11,6 +11,66 @@ interface ImageWithLoaded extends HTMLImageElement {
   loaded?: boolean;
 }
 
+// Game configuration
+const gameConfig = {
+  spaceship: {
+    width: 50,
+    height: 50,
+    speed: 5,
+    maxHp: 100,
+    shootDelay: 200,
+    damage: 1, // Sát thương gây ra bởi đạn của tàu vũ trụ
+    initialEnergy: 100,
+    energyPerShot: 2,
+    energyGainPerAsteroid: 2,
+    invincibilityTime: 1000, // Thời gian bất tử sau khi bị va chạm (ms)
+    energyRegenRate: 3, // Số energy hồi mỗi giây
+  },
+  asteroid: {
+    width: 30,
+    height: 30,
+    speed: 2,
+    maxHp: 3,
+    spawnDelay: 1000,
+    minSpawnDelay: 500,
+    maxCount: 8,
+    collisionDamage: 10, // Sát thương khi va chạm với tàu vũ trụ
+    initialSpawnRate: 1000, // Tốc độ sinh thiên thạch ban đầu (ms)
+    minSpawnRate: 500, // Tốc độ sinh thiên thạch tối thiểu (ms)
+    spawnRateDecrease: 0.98, // Hệ số giảm tốc độ sinh (nhân vào sau mỗi lần sinh)
+    maxSimultaneousSpawn: 2, // Số lượng thiên thạch tối đa sinh ra cùng lúc
+    spawnChance: 0.7, // Xác suất sinh thiên thạch mỗi lần kiểm tra (0-1)
+  },
+  boss: {
+    width: 100,
+    height: 100,
+    speed: 0.5,
+    maxHp: 200,
+    shootDelay: 1000,
+    appearanceThreshold: 10,
+    thresholdIncrement: 10,
+    damage: 2, // Sát thương gây ra bởi đạn của boss
+  },
+  bullet: {
+    width: 5,
+    height: 10,
+    speed: 5,
+  },
+  difficulty: {
+    increaseFactor: 0.95, // Hệ số tăng độ khó (nhân vào sau mỗi lần sinh thiên thạch)
+    increaseInterval: 10000, // Khoảng thời gian tăng độ khó (ms)
+  },
+  energyAsteroid: {
+    width: 20,
+    height: 20,
+    speed: 3,
+    spawnInterval: 3000, // Tăng lên 3 giây
+    spawnChance: 0.5, // Tăng xác suất lên 50%
+    maxSimultaneousSpawn: 1, // Giảm xuống 1
+    energyBonus: 20,
+  },
+};
+
 class GameObject {
   x: number;
   y: number;
@@ -60,24 +120,39 @@ class Spaceship extends GameObject {
   shootDelay: number;
   hp: number;
   maxHp: number;
+  energy: number;
+  maxEnergy: number;
+  lastCollisionTime: number;
 
   constructor(x: number, y: number) {
-    super(x, y, 50, 50, 5, spaceshipImg.src);
+    super(
+      x,
+      y,
+      gameConfig.spaceship.width,
+      gameConfig.spaceship.height,
+      gameConfig.spaceship.speed,
+      spaceshipImg.src
+    );
     this.bullets = [];
     this.lastShot = 0;
-    this.shootDelay = 200;
-    this.maxHp = 100;
+    this.shootDelay = gameConfig.spaceship.shootDelay;
+    this.maxHp = gameConfig.spaceship.maxHp;
     this.hp = this.maxHp;
+    this.maxEnergy = gameConfig.spaceship.initialEnergy;
+    this.energy = this.maxEnergy;
+    this.lastCollisionTime = 0;
   }
 
   draw(ctx: CanvasRenderingContext2D) {
     super.draw(ctx);
 
+    // Comment phần vẽ thanh máu
+    /*
     // Vẽ thanh máu
     const hpBarWidth = 50;
     const hpBarHeight = 5;
     const hpBarX = this.x;
-    const hpBarY = this.y - 10;
+    const hpBarY = this.y - 15;
 
     ctx.fillStyle = "red";
     ctx.fillRect(hpBarX, hpBarY, hpBarWidth, hpBarHeight);
@@ -89,6 +164,42 @@ class Spaceship extends GameObject {
       (this.hp / this.maxHp) * hpBarWidth,
       hpBarHeight
     );
+
+    // Hiển thị phần trăm HP
+    ctx.fillStyle = "white";
+    ctx.font = "10px Arial";
+    ctx.fillText(
+      `${Math.round((this.hp / this.maxHp) * 100)}%`,
+      hpBarX + hpBarWidth + 5,
+      hpBarY + hpBarHeight
+    );
+    */
+
+    // Giữ nguyên phần vẽ thanh năng lượng
+    // Vẽ thanh năng lượng
+    const energyBarWidth = 50;
+    const energyBarHeight = 5;
+    const energyBarX = this.x;
+    const energyBarY = this.y - 10;
+
+    ctx.fillStyle = "gray";
+    ctx.fillRect(energyBarX, energyBarY, energyBarWidth, energyBarHeight);
+
+    ctx.fillStyle = "blue";
+    ctx.fillRect(
+      energyBarX,
+      energyBarY,
+      (this.energy / this.maxEnergy) * energyBarWidth,
+      energyBarHeight
+    );
+
+    // Hiển thị phần trăm Energy
+    ctx.fillStyle = "white";
+    ctx.fillText(
+      `${Math.round((this.energy / this.maxEnergy) * 100)}%`,
+      energyBarX + energyBarWidth + 5,
+      energyBarY + energyBarHeight
+    );
   }
 
   moveTo(x: number, y: number, canvasWidth: number, canvasHeight: number) {
@@ -99,8 +210,7 @@ class Spaceship extends GameObject {
     );
 
     // Tăng khoảng cách offset
-    const baseOffset = 60; // Khoảng cách cơ bản giữa máy bay và ngón tay
-
+    const baseOffset = 10;
     // Tính toán hệ số dựa trên vị trí y của ngón tay
     const factor = 1 + y / canvasHeight; // Hệ số sẽ tăng khi ngón tay ở phía dưới màn hình
 
@@ -115,28 +225,72 @@ class Spaceship extends GameObject {
   }
 
   shoot(currentTime: number) {
-    if (currentTime - this.lastShot > this.shootDelay) {
-      this.bullets.push(new Bullet(this.x + this.width / 2, this.y, 5, -1)); // Đạn đi lên
+    if (
+      currentTime - this.lastShot > this.shootDelay &&
+      this.energy >= gameConfig.spaceship.energyPerShot
+    ) {
+      this.bullets.push(new Bullet(this.x + this.width / 2, this.y, 5, -1));
       this.lastShot = currentTime;
+      this.energy -= gameConfig.spaceship.energyPerShot;
     }
   }
 
-  update(currentTime: number): void {
+  gainEnergy(amount: number) {
+    this.energy = Math.min(this.maxEnergy, this.energy + amount);
+  }
+
+  update(currentTime: number, deltaTime: number): void {
     this.shoot(currentTime);
     this.bullets = this.bullets.filter((bullet) => bullet.y > 0);
     this.bullets.forEach((bullet) => bullet.update());
+
+    // Hồi energy tự động
+    this.gainEnergy((gameConfig.spaceship.energyRegenRate * deltaTime) / 1000);
   }
 
-  takeDamage(damage: number) {
-    this.hp = Math.max(0, this.hp - damage);
+  // Comment hoặc vô hiệu hóa phương thức takeDamage
+  /*
+  takeDamage(damage: number, currentTime: number) {
+    if (
+      currentTime - this.lastCollisionTime >
+      gameConfig.spaceship.invincibilityTime
+    ) {
+      this.hp = Math.max(0, this.hp - damage);
+      this.lastCollisionTime = currentTime;
+    }
+  }
+  */
+
+  // Thay thế bằng phương thức rỗng
+  takeDamage(damage: number, currentTime: number) {
+    // Không làm gì cả
+  }
+
+  isInvincible(currentTime: number): boolean {
+    return (
+      currentTime - this.lastCollisionTime <
+      gameConfig.spaceship.invincibilityTime
+    );
   }
 }
 
 class Bullet extends GameObject {
   direction: number;
 
-  constructor(x: number, y: number, speed: number = 5, direction: number = -1) {
-    super(x, y, 5, 10, speed, bulletImg.src);
+  constructor(
+    x: number,
+    y: number,
+    speed: number = gameConfig.bullet.speed,
+    direction: number = -1
+  ) {
+    super(
+      x,
+      y,
+      gameConfig.bullet.width,
+      gameConfig.bullet.height,
+      speed,
+      bulletImg.src
+    );
     this.direction = direction; // -1 cho đạn đi lên, 1 cho đạn đi xuống
   }
 
@@ -149,8 +303,15 @@ class Asteroid extends GameObject {
   hp: number;
 
   constructor(x: number) {
-    super(x, 0, 30, 30, 2, asteroidImg.src);
-    this.hp = 3;
+    super(
+      x,
+      0,
+      gameConfig.asteroid.width,
+      gameConfig.asteroid.height,
+      gameConfig.asteroid.speed,
+      asteroidImg.src
+    );
+    this.hp = gameConfig.asteroid.maxHp;
   }
 
   update(): void {
@@ -186,11 +347,18 @@ class Boss extends GameObject {
   direction: number;
 
   constructor(x: number, y: number) {
-    super(x, y, 100, 100, 0.5, bossImg.src);
+    super(
+      x,
+      y,
+      gameConfig.boss.width,
+      gameConfig.boss.height,
+      gameConfig.boss.speed,
+      bossImg.src
+    );
     this.bullets = [];
     this.lastShot = 0;
-    this.shootDelay = 1000; // Bắn mỗi giây
-    this.hp = 200;
+    this.shootDelay = gameConfig.boss.shootDelay;
+    this.hp = gameConfig.boss.maxHp;
     this.direction = 1;
   }
 
@@ -245,6 +413,75 @@ class Boss extends GameObject {
   }
 }
 
+// Thêm hàm kiểm tra va chạm
+function checkCollision(obj1: GameObject, obj2: GameObject): boolean {
+  return (
+    obj1.x < obj2.x + obj2.width &&
+    obj1.x + obj1.width > obj2.x &&
+    obj1.y < obj2.y + obj2.height &&
+    obj1.y + obj1.height > obj2.y
+  );
+}
+
+// Thêm lớp mới cho thiên thạch energy
+class EnergyAsteroid extends GameObject {
+  constructor(x: number) {
+    super(
+      x,
+      0,
+      gameConfig.energyAsteroid.width,
+      gameConfig.energyAsteroid.height,
+      gameConfig.energyAsteroid.speed,
+      "" // Không cần hình ảnh nữa
+    );
+  }
+
+  update(): void {
+    this.y += this.speed;
+  }
+
+  draw(ctx: CanvasRenderingContext2D): void {
+    ctx.beginPath();
+    ctx.arc(
+      this.x + this.width / 2,
+      this.y + this.height / 2,
+      this.width / 2,
+      0,
+      Math.PI * 2
+    );
+    ctx.fillStyle = "blue";
+    ctx.fill();
+    ctx.closePath();
+  }
+}
+
+// Thêm hàm tính khoảng cách giữa hai điểm
+function distance(x1: number, y1: number, x2: number, y2: number): number {
+  return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+}
+
+// Hàm kiểm tra và điều chỉnh vị trí của thiên thạch mới
+function adjustAsteroidPosition(
+  newAsteroid: Asteroid,
+  existingAsteroids: Asteroid[],
+  canvasWidth: number
+): void {
+  const minDistance = gameConfig.asteroid.width * 1.5; // Khoảng cách tối thiểu giữa các thiên thạch
+
+  for (const asteroid of existingAsteroids) {
+    if (
+      distance(newAsteroid.x, newAsteroid.y, asteroid.x, asteroid.y) <
+      minDistance
+    ) {
+      // Nếu quá gần, di chuyển thiên thạch mới sang phải hoặc trái
+      newAsteroid.x = (newAsteroid.x + canvasWidth / 2) % canvasWidth;
+      // Kiểm tra lại sau khi di chuyển
+      adjustAsteroidPosition(newAsteroid, existingAsteroids, canvasWidth);
+      return;
+    }
+  }
+}
+
 const SpaceGame: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const spaceshipRef = useRef<Spaceship | null>(null);
@@ -269,21 +506,28 @@ const SpaceGame: React.FC = () => {
       canvas.height - 70
     );
     const asteroids: Asteroid[] = [];
+    const energyAsteroids: EnergyAsteroid[] = [];
+    let asteroidSpawnRate = gameConfig.asteroid.initialSpawnRate;
     let lastAsteroidTime = 0;
-    let asteroidDelay = 1000; // Giảm xuống 1 giây
-    const minAsteroidDelay = 500; // Thời gian tối thiểu giữa các thiên thạch
-    const maxAsteroids = 8; // Tăng số lượng thiên thạch tối đa
+    let lastDifficultyIncrease = 0;
+    const maxAsteroids = gameConfig.asteroid.maxCount;
 
     let destroyedAsteroids = 0;
+    let destroyedAsteroidsCount = 0; // Thêm biến mới để đếm số thiên thạch đã bị bắn hạ
     let boss: Boss | null = null;
-    let bossAppearanceThreshold = 10;
+    let bossAppearanceThreshold = gameConfig.boss.appearanceThreshold;
+    let lastTime = 0;
+    let lastEnergyAsteroidTime = 0;
 
     const gameLoop = (currentTime: number) => {
+      const deltaTime = currentTime - lastTime;
+      lastTime = currentTime;
+
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       if (spaceshipRef.current) {
         // Update and draw spaceship
-        spaceshipRef.current.update(currentTime);
+        spaceshipRef.current.update(currentTime, deltaTime);
         spaceshipRef.current.draw(ctx);
 
         // Update and draw bullets
@@ -293,21 +537,48 @@ const SpaceGame: React.FC = () => {
         });
       }
 
-      // Create new asteroids
+      // Tăng độ khó theo thời gian
       if (
-        currentTime - lastAsteroidTime > asteroidDelay &&
-        asteroids.length < maxAsteroids
+        currentTime - lastDifficultyIncrease >
+        gameConfig.difficulty.increaseInterval
       ) {
-        const newAsteroidCount = Math.floor(Math.random() * 2) + 1; // Tạo 1-3 thiên thạch mỗi lần
-        for (let i = 0; i < newAsteroidCount; i++) {
-          if (asteroids.length < maxAsteroids) {
-            asteroids.push(new Asteroid(Math.random() * (canvas.width - 30)));
+        asteroidSpawnRate *= gameConfig.difficulty.increaseFactor;
+        asteroidSpawnRate = Math.max(
+          asteroidSpawnRate,
+          gameConfig.asteroid.minSpawnRate
+        );
+        lastDifficultyIncrease = currentTime;
+      }
+
+      // Sinh thiên thạch mới
+      if (currentTime - lastAsteroidTime > asteroidSpawnRate) {
+        if (
+          Math.random() < gameConfig.asteroid.spawnChance &&
+          asteroids.length < gameConfig.asteroid.maxCount
+        ) {
+          const newAsteroidCount = Math.min(
+            Math.floor(
+              Math.random() * gameConfig.asteroid.maxSimultaneousSpawn
+            ) + 1,
+            gameConfig.asteroid.maxCount - asteroids.length
+          );
+
+          for (let i = 0; i < newAsteroidCount; i++) {
+            const newAsteroid = new Asteroid(
+              Math.random() * (canvas.width - gameConfig.asteroid.width)
+            );
+            adjustAsteroidPosition(newAsteroid, asteroids, canvas.width);
+            asteroids.push(newAsteroid);
           }
+
+          // Giảm tốc độ sinh thiên thạch
+          asteroidSpawnRate *= gameConfig.asteroid.spawnRateDecrease;
+          asteroidSpawnRate = Math.max(
+            asteroidSpawnRate,
+            gameConfig.asteroid.minSpawnRate
+          );
         }
         lastAsteroidTime = currentTime;
-
-        // Giảm thời gian chờ giữa các đợt thiên thạch
-        asteroidDelay = Math.max(minAsteroidDelay, asteroidDelay * 0.95);
       }
 
       // Update and draw asteroids
@@ -319,6 +590,33 @@ const SpaceGame: React.FC = () => {
         // Remove asteroids that are off screen
         if (asteroid.y > canvas.height) {
           asteroids.splice(i, 1);
+        }
+      }
+
+      // Sinh thiên thạch energy
+      if (
+        currentTime - lastEnergyAsteroidTime >
+        gameConfig.energyAsteroid.spawnInterval
+      ) {
+        if (Math.random() < gameConfig.energyAsteroid.spawnChance) {
+          energyAsteroids.push(
+            new EnergyAsteroid(
+              Math.random() * (canvas.width - gameConfig.energyAsteroid.width)
+            )
+          );
+        }
+        lastEnergyAsteroidTime = currentTime;
+      }
+
+      // Update and draw energy asteroids
+      for (let i = energyAsteroids.length - 1; i >= 0; i--) {
+        const energyAsteroid = energyAsteroids[i];
+        energyAsteroid.update();
+        energyAsteroid.draw(ctx);
+
+        // Remove energy asteroids that are off screen
+        if (energyAsteroid.y > canvas.height) {
+          energyAsteroids.splice(i, 1);
         }
       }
 
@@ -337,14 +635,15 @@ const SpaceGame: React.FC = () => {
         if (spaceshipRef.current) {
           for (let i = boss.bullets.length - 1; i >= 0; i--) {
             const bullet = boss.bullets[i];
-            if (
-              bullet.x < spaceshipRef.current.x + spaceshipRef.current.width &&
-              bullet.x + bullet.width > spaceshipRef.current.x &&
-              bullet.y < spaceshipRef.current.y + spaceshipRef.current.height &&
-              bullet.y + bullet.height > spaceshipRef.current.y
-            ) {
+            if (checkCollision(spaceshipRef.current, bullet)) {
               boss.bullets.splice(i, 1);
-              spaceshipRef.current.takeDamage(2);
+              // Comment phần gây sát thương
+              /*
+              spaceshipRef.current.takeDamage(
+                gameConfig.boss.damage,
+                currentTime
+              );
+              */
             }
           }
         }
@@ -352,62 +651,103 @@ const SpaceGame: React.FC = () => {
 
       // Check for collisions
       if (spaceshipRef.current) {
+        // Kiểm tra va chạm giữa tàu vũ trụ và thiên thạch
+        for (let i = asteroids.length - 1; i >= 0; i--) {
+          const asteroid = asteroids[i];
+          if (checkCollision(spaceshipRef.current, asteroid)) {
+            // Comment phần xử lý va chạm gây sát thương
+            /*
+            if (!spaceshipRef.current.isInvincible(currentTime)) {
+              spaceshipRef.current.takeDamage(
+                gameConfig.asteroid.collisionDamage,
+                currentTime
+              );
+            }
+            */
+            asteroids.splice(i, 1);
+          }
+        }
+
+        // Kiểm tra va chạm giữa đạn của tàu vũ trụ và thiên thạch
         for (let i = spaceshipRef.current.bullets.length - 1; i >= 0; i--) {
           const bullet = spaceshipRef.current.bullets[i];
           for (let j = asteroids.length - 1; j >= 0; j--) {
             const asteroid = asteroids[j];
-            if (
-              bullet.x < asteroid.x + asteroid.width &&
-              bullet.x + bullet.width > asteroid.x &&
-              bullet.y < asteroid.y + asteroid.height &&
-              bullet.y + bullet.height > asteroid.y
-            ) {
+            if (checkCollision(bullet, asteroid)) {
               spaceshipRef.current.bullets.splice(i, 1);
-              asteroid.takeDamage(1); // Giảm sát thương xuống 1
+              asteroid.takeDamage(gameConfig.spaceship.damage);
               if (asteroid.hp <= 0) {
                 asteroids.splice(j, 1);
                 destroyedAsteroids++;
+                destroyedAsteroidsCount++; // Tăng số lượng thiên thạch đã bị bắn hạ
+                if (
+                  spaceshipRef.current.energy >=
+                  gameConfig.spaceship.energyPerShot
+                ) {
+                  spaceshipRef.current.energy -=
+                    gameConfig.spaceship.energyPerShot;
+                  spaceshipRef.current.gainEnergy(
+                    gameConfig.spaceship.energyGainPerAsteroid
+                  );
+                }
 
                 // Kiểm tra điều kiện xuất hiện boss
                 if (destroyedAsteroids === bossAppearanceThreshold && !boss) {
-                  boss = new Boss(canvas.width / 2 - 50, 50);
-                  bossAppearanceThreshold += 10; // Tăng ngưỡng cho lần tiếp theo
+                  boss = new Boss(
+                    canvas.width / 2 - gameConfig.boss.width / 2,
+                    50
+                  );
+                  bossAppearanceThreshold += gameConfig.boss.thresholdIncrement;
                 }
               }
               break;
             }
           }
+        }
 
-          // Kiểm tra va chạm giữa đạn và boss
-          if (
-            boss &&
-            bullet.x < boss.x + boss.width &&
-            bullet.x + bullet.width > boss.x &&
-            bullet.y < boss.y + boss.height &&
-            bullet.y + bullet.height > boss.y
-          ) {
-            spaceshipRef.current.bullets.splice(i, 1);
-            boss.takeDamage(1); // Giảm sát thương xuống 1
-            if (boss.hp <= 0) {
-              boss = null;
+        // Kiểm tra va chạm giữa đạn và boss
+        if (boss) {
+          for (let i = spaceshipRef.current.bullets.length - 1; i >= 0; i--) {
+            const bullet = spaceshipRef.current.bullets[i];
+            if (
+              boss &&
+              bullet.x < boss.x + boss.width &&
+              bullet.x + bullet.width > boss.x &&
+              bullet.y < boss.y + boss.height &&
+              bullet.y + bullet.height > boss.y
+            ) {
+              spaceshipRef.current.bullets.splice(i, 1);
+              if (
+                spaceshipRef.current.energy >=
+                gameConfig.spaceship.energyPerShot
+              ) {
+                spaceshipRef.current.energy -=
+                  gameConfig.spaceship.energyPerShot;
+                boss.takeDamage(gameConfig.spaceship.damage);
+                if (boss.hp <= 0) {
+                  boss = null;
+                }
+              }
             }
           }
         }
 
-        // Check for collision between spaceship and asteroids
-        for (let i = asteroids.length - 1; i >= 0; i--) {
-          const asteroid = asteroids[i];
-          if (
-            spaceshipRef.current.x < asteroid.x + asteroid.width &&
-            spaceshipRef.current.x + spaceshipRef.current.width > asteroid.x &&
-            spaceshipRef.current.y < asteroid.y + asteroid.height &&
-            spaceshipRef.current.y + spaceshipRef.current.height > asteroid.y
-          ) {
-            spaceshipRef.current.takeDamage(10);
-            asteroids.splice(i, 1);
+        // Kiểm tra va chạm giữa tàu vũ trụ và thiên thạch energy
+        for (let i = energyAsteroids.length - 1; i >= 0; i--) {
+          const energyAsteroid = energyAsteroids[i];
+          if (checkCollision(spaceshipRef.current, energyAsteroid)) {
+            energyAsteroids.splice(i, 1);
+            spaceshipRef.current.gainEnergy(
+              gameConfig.energyAsteroid.energyBonus
+            );
           }
         }
       }
+
+      // Vẽ số lượng thiên thạch đã bị bắn hạ
+      ctx.fillStyle = "white";
+      ctx.font = "20px Arial";
+      ctx.fillText(`Asteroids destroyed: ${destroyedAsteroidsCount}`, 10, 30);
 
       requestAnimationFrame(gameLoop);
     };
